@@ -1,0 +1,96 @@
+Source Output #206
+	Driver: PipeWire
+	Owner Module: n/a
+	Client: 205
+	Source: 55
+	Sample Specification: s32le 2ch 48000Hz
+	Channel Map: front-left,front-right
+	Format: pcm, format.sample_format = "\"s32le\""  format.rate = "48000"  format.channels = "2"  format.channel_map = "\"front-left,front-right\""
+	Corked: no
+	Mute: no
+	Volume: front-left: 65536 / 100% / 0.00 dB,   front-right: 65536 / 100% / 0.00 dB
+	        balance 0.00
+	Buffer Latency: 0 usec
+	Source Latency: 0 usec
+	Resample method: PipeWire
+	Properties:
+		client.api = "pipewire-pulse"
+		pulse.server.type = "unix"
+		application.name = "OBS"
+		application.icon_name = "obs"
+		media.role = "production"
+		application.process.id = "7745"
+		application.process.user = "lyr"
+		application.process.host = "home"
+		application.process.binary = "obs"
+		application.language = "en_US.UTF-8"
+		window.x11.display = ":1"
+		application.process.machine_id = "3bad847d20214aa88081dc891d58555e"
+		media.name = "Desktop Audio"
+		node.rate = "1/48000"
+		node.latency = "1200/48000"
+		target.object = "alsa_output.pci-0000_31_00.4.analog-stereo"
+		stream.capture.sink = "true"
+		stream.is-live = "true"
+		node.name = "OBS"
+		node.want-driver = "true"
+		node.autoconnect = "true"
+		media.class = "Stream/Input/Audio"
+		adapt.follower.spa-node = ""
+		object.register = "false"
+		factory.id = "6"
+		clock.quantum-limit = "8192"
+		factory.mode = "merge"
+		audio.adapt.follower = ""
+		library.name = "audioconvert/libspa-audioconvert"
+		client.id = "139"
+		object.id = "141"
+		object.serial = "206"
+		pulse.attr.maxlength = "4194304"
+		pulse.attr.fragsize = "9600"
+		module-stream-restore.id = "source-output-by-media-role:production"
+
+Source Output #590
+	Driver: PipeWire
+	Owner Module: 536870916
+	Client: n/a
+	Source: 51
+	Sample Specification: float32le 2ch 48000Hz
+	Channel Map: front-left,front-right
+	Format: pcm, format.sample_format = "\"float32ne\""  format.rate = "48000"  format.channels = "2"  format.channel_map = "\"front-left,front-right\""
+	Corked: no
+	Mute: no
+	Volume: front-left: 65536 / 100% / 0.00 dB,   front-right: 65536 / 100% / 0.00 dB
+	        balance 0.00
+	Buffer Latency: 0 usec
+	Source Latency: 0 usec
+	Resample method: PipeWire
+	Properties:
+		target.object = "alsa_output.pci-0000_31_00.4.analog-stereo"
+		stream.capture.sink = "true"
+		node.group = "loopback-536870916"
+		pulse.module.id = "536870916"
+		audio.channels = "2"
+		audio.position = "[ FL, FR ]"
+		node.link-group = "loopback-1799-13"
+		node.virtual = "true"
+		resample.prefill = "true"
+		node.name = "input.loopback-1799-13"
+		device.description = "loopback-1799-13"
+		resample.disable = "true"
+		media.name = "loopback-1799-13 input"
+		stream.is-live = "true"
+		node.want-driver = "true"
+		node.autoconnect = "true"
+		media.class = "Stream/Input/Audio"
+		adapt.follower.spa-node = ""
+		object.register = "false"
+		factory.id = "6"
+		clock.quantum-limit = "8192"
+		factory.mode = "merge"
+		audio.adapt.follower = ""
+		library.name = "audioconvert/libspa-audioconvert"
+		client.id = "180"
+		object.id = "156"
+		object.serial = "590"
+		module-stream-restore.id = "source-output-by-media-name:loopback-1799-13 input"
