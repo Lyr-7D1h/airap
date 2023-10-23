@@ -1,3 +1,6 @@
+use log::debug;
+use pulse::callbacks::ListResult;
+use pulse::context::introspect::SinkInfo;
 use pulse::context::{Context, FlagSet as ContextFlagSet};
 use pulse::def::Retval;
 use pulse::mainloop::standard::IterateResult;
@@ -8,7 +11,6 @@ use pulse::sample::{Format, Spec};
 use pulse::stream::{self, FlagSet as StreamFlagSet, Stream};
 use std::cell::RefCell;
 use std::error::Error;
-use std::marker::Unsize;
 use std::ops::Deref;
 use std::rc::Rc;
 
@@ -60,25 +62,25 @@ impl PulseAudio {
         }
     }
 
-    pub fn wait_for_operation<F, Callback, G: ?Sized>(&mut self, op: F) -> Result<(), AirapError>
-    where
-        F: Fn(Callback) -> Operation<G>,
-        Callback: FnMut(G) + 'static,
-    {
-        // loop {
-        //     match self.mainloop.borrow_mut().iterate(false) {
-        //         IterateResult::Err(e) => return Err(e.into()),
-        //         IterateResult::Success(_) => {}
-        //         IterateResult::Quit(_) => {
-        //             return Err(AirapError::audio("Operation failed: mainloop quiting"))
-        //         }
-        //     }
-        //     match op.get_state() {
-        //         State::Done => break,
-        //         State::Running => {}
-        //         State::Cancelled => return Err(AirapError::audio("Operation cancelled")),
-        //     }
-        // }
+    pub fn iterate_mainloop(&self) -> Result<(), AirapError> {
+        match self.mainloop.borrow_mut().iterate(false) {
+            IterateResult::Success(_) => return Ok(()),
+            IterateResult::Err(e) => return Err(e.into()),
+            IterateResult::Quit(_) => {
+                return Err(AirapError::audio("Operation failed: mainloop quiting"))
+            }
+        }
+    }
+
+    pub fn wait_for_operation<G: ?Sized>(&mut self, op: Operation<G>) -> Result<(), AirapError> {
+        loop {
+            self.iterate_mainloop()?;
+            match op.get_state() {
+                State::Done => break,
+                State::Running => {}
+                State::Cancelled => return Err(AirapError::audio("Operation cancelled")),
+            }
+        }
         Ok(())
     }
 }
@@ -94,12 +96,7 @@ impl Audio for PulseAudio {
     fn on_update(&mut self, op: fn(u16)) -> Result<(), AirapError> {
         // Wait for context to be ready
         loop {
-            match self.mainloop.borrow_mut().iterate(false) {
-                IterateResult::Quit(_) | IterateResult::Err(_) => {
-                    return Err(AirapError::audio("mainloop quiting"))
-                }
-                IterateResult::Success(_) => {}
-            }
+            self.iterate_mainloop()?;
             match self.context.borrow().get_state() {
                 pulse::context::State::Ready => {
                     break;
@@ -112,31 +109,40 @@ impl Audio for PulseAudio {
         }
 
         let introspector = self.context.borrow_mut().introspect();
-        // let op = introspector.get_sink_info_list(|list| {
-        //     println!("{list:?}");
-        // });
-        self.wait_for_operation(|cb| introspector.get_sink_info_list(cb))?;
+
+        let default_port_name = Rc::new(RefCell::new(None));
+        let name_ref = default_port_name.clone();
+        let op = introspector.get_sink_info_list(move |sink_list| {
+            if let ListResult::Item(item) = sink_list {
+                if let Some(port) = &item.active_port {
+                    if let Some(name) = &port.name {
+                        *name_ref.borrow_mut() = Some(name.to_string().as_str());
+                    }
+                }
+                println!("{item:?}");
+            }
+        });
+        self.wait_for_operation(op)?;
 
         self.stream
             .borrow_mut()
-            .connect_record(None, None, StreamFlagSet::NOFLAGS)
+            .connect_record(
+                default_port_name.borrow().clone(),
+                None,
+                StreamFlagSet::NOFLAGS,
+            )
             .expect("Failed to connect record");
+
+        debug!("Listening on {:?}", self.stream.borrow().get_device_name());
 
         // Wait for stream to be ready
         loop {
-            match self.mainloop.borrow_mut().iterate(false) {
-                IterateResult::Quit(_) | IterateResult::Err(_) => {
-                    return Err(AirapError::audio("mainloop quiting"))
-                }
-                IterateResult::Success(_) => {}
-            }
+            self.iterate_mainloop()?;
             match self.stream.borrow().get_state() {
                 stream::State::Ready => break,
-
                 stream::State::Failed | stream::State::Terminated => {
                     return Err(AirapError::audio("stream state failed"))
                 }
-
                 _ => {}
             }
         }

@@ -1,4 +1,3 @@
-#![feature(unsize)]
 use audio::{pulseaudio::PulseAudio, Audio};
 use error::AirapError;
 use log::debug;
