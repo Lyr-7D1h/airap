@@ -1,0 +1,11 @@
+ServerInfo { 
+  user_name: Some("lyr"), 
+  host_name: Some("home"), 
+  server_version: Some("15.0.0"), 
+  server_name: Some("PulseAudio (on PipeWire 0.3.82)"), 
+  sample_spec: Spec { format: F32le, rate: 48000, channels: 2 }, 
+  default_sink_name: Some("alsa_output.pci-0000_31_00.4.analog-stereo"), 
+  default_source_name: Some("alsa_input.usb-Generic_Blue_Microphones_201701110001-00.3.analog-stereo"),
+  cookie: 3757322557,
+  channel_map: Map { channels: 2, map: [FrontLeft, FrontRight, Mono, Mono, Mono, Mono, Mono, Mono, Mono, Mono, Mono, Mono, Mono, Mono, Mono, Mono, Mono, Mono, Mono, Mono, Mono, Mono, Mono, Mono, Mono, Mono, Mono, Mono, Mono, Mono, Mono, Mono] }
+}

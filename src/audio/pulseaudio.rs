@@ -109,31 +109,48 @@ impl Audio for PulseAudio {
         }
 
         let introspector = self.context.borrow_mut().introspect();
-
-        let default_port_name = Rc::new(RefCell::new(None));
-        let name_ref = default_port_name.clone();
-        let op = introspector.get_sink_info_list(move |sink_list| {
-            if let ListResult::Item(item) = sink_list {
-                if let Some(port) = &item.active_port {
-                    if let Some(name) = &port.name {
-                        *name_ref.borrow_mut() = Some(name.to_string().as_str());
-                    }
-                }
-                println!("{item:?}");
-            }
+        let default_sink_name = Rc::new(RefCell::new(None));
+        let default_sink_name_ref = default_sink_name.clone();
+        let op = introspector.get_server_info(move |info| {
+            let name = info.default_sink_name.as_ref().map(|n| n.to_string());
+            *default_sink_name_ref.borrow_mut() = name;
         });
         self.wait_for_operation(op)?;
 
+        let default_source_name = Rc::new(RefCell::new(None));
+        if let Some(default_sink_name) = Rc::try_unwrap(default_sink_name).unwrap().into_inner() {
+            let default_sink_name_ref = default_source_name.clone();
+            let op = introspector.get_source_info_list(move |lr| {
+                if let ListResult::Item(i) = lr {
+                    if let Some(name) = &i.monitor_of_sink_name {
+                        if name.to_string() == *default_sink_name {
+                            *default_sink_name_ref.borrow_mut() =
+                                i.name.as_ref().map(|n| n.to_string())
+                            // TODO make sure name exists otherwise return error in callback
+                            // match i.name {
+                            //     Some(name) => {
+                            //     }
+                            //     None => {
+                            //         return Err(AirapError::audio(
+                            //             "Found default source does not have a name",
+                            //         ))
+                            //     }
+                            // }
+                        }
+                    }
+                }
+            });
+            self.wait_for_operation(op)?;
+        }
+
+        let default_source_name = default_source_name.borrow();
+        let default_source_name = default_source_name.as_ref().map(|n| n.as_str());
+
+        debug!("Listening to {:?}", default_source_name);
         self.stream
             .borrow_mut()
-            .connect_record(
-                default_port_name.borrow().clone(),
-                None,
-                StreamFlagSet::NOFLAGS,
-            )
+            .connect_record(default_source_name, None, StreamFlagSet::NOFLAGS)
             .expect("Failed to connect record");
-
-        debug!("Listening on {:?}", self.stream.borrow().get_device_name());
 
         // Wait for stream to be ready
         loop {
@@ -147,45 +164,21 @@ impl Audio for PulseAudio {
             }
         }
 
-        // Our main logic (to output a stream of audio data)
-        let drained = Rc::new(RefCell::new(false));
+        debug!("Reading from stream");
+        let mut stream = self.stream.borrow_mut();
         loop {
-            // match self.mainloop.borrow_mut().iterate(false) {
-            //     IterateResult::Quit(_) | IterateResult::Err(_) => {
-            //         eprintln!("Iterate state was not success, quitting...");
-            //         return;
-            //     }
-            //     IterateResult::Success(_) => {}
-            // }
+            self.iterate_mainloop()?;
+            if let Some(size) = stream.readable_size() {
+                if size > 0 {
+                    let read = stream.peek()?;
+                    println!("{:?}", read);
+                    stream.discard()?;
+                }
+            }
 
-            // // Write some data with stream.write()
-            // //
-
-            // if self.stream.borrow().is_corked().unwrap() {
-            //     self.stream.borrow_mut().uncork(None);
-            // }
-
-            // // Wait for our data to be played
-            // let _o = {
-            //     let drain_state_ref = Rc::clone(&drained);
-            //     self.stream
-            //         .borrow_mut()
-            //         .drain(Some(Box::new(move |_success: bool| {
-            //             *drain_state_ref.borrow_mut() = true;
-            //         })))
-            // };
-            // while *drained.borrow_mut() == false {
-            //     match self.mainloop.borrow_mut().iterate(false) {
-            //         IterateResult::Quit(_) | IterateResult::Err(_) => {
-            //             eprintln!("Iterate state was not success, quitting...");
-            //             return;
-            //         }
-            //         IterateResult::Success(_) => {}
-            //     }
-            // }
-            // *drained.borrow_mut() = false;
-
-            // Remember to break out of the loop once done writing all data (or whatever).
+            if stream.is_corked().unwrap() {
+                stream.uncork(None);
+            }
         }
     }
 }
