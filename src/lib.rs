@@ -5,13 +5,17 @@ use log::debug;
 pub mod audio;
 pub mod error;
 
+pub enum Feature {
+    Raw,
+}
+
 pub struct Airap {
     audio: Box<dyn Audio>,
 }
 
 impl Airap {
     pub fn new() -> Result<Airap, AirapError> {
-        let mut audio: Box<dyn Audio> = if cfg!(unix) {
+        let audio: Box<dyn Audio> = if cfg!(unix) {
             debug!("Creating pulseaudio capturing device");
             Box::from(PulseAudio::new())
         } else if cfg!(windows) {
@@ -22,8 +26,12 @@ impl Airap {
             panic!("Unsupported os")
         };
 
-        audio.on_update(|data| {});
-
         Ok(Airap { audio })
+    }
+}
+
+impl Audio for Airap {
+    fn on_update(&mut self, cb: fn(&[i32])) -> Result<(), AirapError> {
+        self.audio.on_update(cb)
     }
 }

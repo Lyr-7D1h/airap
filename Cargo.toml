@@ -11,4 +11,9 @@ psimple = {version="2.28.1",package="libpulse-simple-binding"}
 log = "0.4.20"
 
 [dev-dependencies]
-simple_logger = "4.2.0"
+
+
+[workspace]
+members = [
+    "examples/plotter",
+]

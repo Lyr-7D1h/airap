@@ -78,7 +78,7 @@ impl Drop for PulseAudio {
 }
 
 impl Audio for PulseAudio {
-    fn on_update(&mut self, op: fn(u16)) -> Result<(), AirapError> {
+    fn on_update(&mut self, callback: fn(&[i32])) -> Result<(), AirapError> {
         // Wait for context to be ready
         loop {
             self.iterate_mainloop()?;
@@ -200,10 +200,11 @@ impl Audio for PulseAudio {
 
                     // TODO parse format and lower latency
                     while let PeekResult::Data(bytes) = stream.peek()? {
-                        unsafe {
-                            let (_, data, _) = bytes.align_to::<f32>();
-                            println!("{:?}", data);
-                        }
+                        let (prefix, data, suffix) = unsafe { bytes.align_to::<i32>() };
+                        assert!(prefix.len() == 0);
+                        assert!(suffix.len() == 0);
+                        println!("{data:?}");
+                        callback(data);
                         stream.discard()?;
                     }
                 }
