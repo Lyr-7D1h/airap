@@ -15,5 +15,6 @@ log = "0.4.20"
 
 [workspace]
 members = [
-    "examples/plotter",
+    "examples/plotter-gtk",
+    "examples/plotter-minifb",
 ]

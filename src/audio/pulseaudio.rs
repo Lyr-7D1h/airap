@@ -26,7 +26,7 @@ impl PulseAudio {
         PulseAudio {}
     }
 
-    pub fn on_update<F>(&mut self, cb: F)
+    pub fn on_raw<F>(&mut self, cb: F)
     where
         F: Fn(&[f32]) + Send + 'static,
     {
@@ -36,12 +36,6 @@ impl PulseAudio {
             .unwrap();
     }
 }
-
-// impl Drop for PulseAudio {
-//     fn drop(&mut self) {
-//         self.mainloop.borrow_mut().quit(Retval(0));
-//     }
-// }
 
 fn wait_for_operation<G: ?Sized>(
     mainloop: &Rc<RefCell<Mainloop>>,
@@ -163,7 +157,7 @@ where
 
     // half the latency
     let buff_attr = BufferAttr {
-        maxlength: u16::MAX as u32,
+        maxlength: u16::MAX as u32 / 10,
         tlength: 96000,
         prebuf: u32::MAX,
         minreq: u32::MAX,
@@ -173,8 +167,9 @@ where
         .borrow_mut()
         .connect_record(
             default_source_name,
-            Some(&buff_attr), //None,
-            StreamFlagSet::DONT_MOVE | StreamFlagSet::ADJUST_LATENCY,
+            // None,
+            Some(&buff_attr),
+            StreamFlagSet::DONT_MOVE | StreamFlagSet::ADJUST_LATENCY | StreamFlagSet::START_UNMUTED,
         )
         .expect("Failed to connect record");
 
@@ -212,6 +207,7 @@ where
 
                 // TODO parse format
                 while let PeekResult::Data(bytes) = stream.peek()? {
+                    // println!("{}", bytes.len());
                     let (prefix, data, suffix) = unsafe { bytes.align_to::<f32>() };
                     assert!(prefix.len() == 0);
                     assert!(suffix.len() == 0);
@@ -223,6 +219,7 @@ where
             }
         }
 
+        // TODO fix volume and unmute
         if stream.is_corked().unwrap() {
             stream.uncork(None);
         }

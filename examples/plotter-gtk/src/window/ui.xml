@@ -43,9 +43,9 @@
           </object>
         </child>
         <child>
-          <object class="Plotter" id="plot">
+          <object class="Plotter">
             <property name="vexpand">True</property>
-            <property name="time-interval-ms" bind-source="time_interval_ms" bind-property="value" bind-flags="sync-create" />
+            <!-- <property name="time-interval-ms" bind-source="time_interval_ms" bind-property="value" bind-flags="sync-create" /> -->
           </object>
         </child>
       </object>

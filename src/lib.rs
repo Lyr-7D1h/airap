@@ -4,6 +4,7 @@ use std::{
         Arc,
     },
     thread::{self, Builder},
+    time::Duration,
 };
 
 use audio::pulseaudio::PulseAudio;
@@ -14,6 +15,18 @@ pub mod error;
 
 pub enum Feature {
     Raw,
+}
+
+pub struct Options {
+    max_latency: Duration,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            max_latency: Duration::from_millis(5),
+        }
+    }
 }
 
 pub struct Airap {
@@ -39,11 +52,11 @@ impl Airap {
     }
 
     /// Send data to a callback
-    pub fn on_raw<F>(&mut self, cb: F)
+    pub fn on_raw<F>(&mut self, options: Options, cb: F)
     where
         F: Fn(&[f32]) + Send + 'static,
     {
-        self.audio.on_update(cb);
+        self.audio.on_raw(cb);
     }
 
     pub fn start() {

@@ -14,6 +14,7 @@ impl ObjectSubclass for Window {
 
     fn class_init(klass: &mut Self::Class) {
         crate::plotter::Plotter::ensure_type();
+        crate::plotter::PlotterInner::ensure_type();
         klass.bind_template();
     }
 
