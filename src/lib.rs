@@ -1,6 +1,13 @@
-use audio::{pulseaudio::PulseAudio, Audio};
+use std::{
+    sync::{
+        mpsc::{self, Receiver},
+        Arc,
+    },
+    thread::{self, Builder},
+};
+
+use audio::pulseaudio::PulseAudio;
 use error::AirapError;
-use log::debug;
 
 pub mod audio;
 pub mod error;
@@ -10,28 +17,36 @@ pub enum Feature {
 }
 
 pub struct Airap {
-    audio: Box<dyn Audio>,
+    // audio: Box<dyn Audio>,
+    audio: PulseAudio,
 }
 
 impl Airap {
     pub fn new() -> Result<Airap, AirapError> {
-        let audio: Box<dyn Audio> = if cfg!(unix) {
-            debug!("Creating pulseaudio capturing device");
-            Box::from(PulseAudio::new())
-        } else if cfg!(windows) {
-            panic!("Windows is not supported")
-        } else if cfg!(macos) {
-            panic!("MacOS is not supported")
-        } else {
-            panic!("Unsupported os")
-        };
+        // let audio = if cfg!(unix) {
+        //     debug!("Creating pulseaudio capturing device");
+        //     Box::from(PulseAudio::new())
+        // } else if cfg!(windows) {
+        //     panic!("Windows is not supported")
+        // } else if cfg!(macos) {
+        //     panic!("MacOS is not supported")
+        // } else {
+        //     panic!("Unsupported os")
+        // };
 
+        let audio = PulseAudio::new();
         Ok(Airap { audio })
     }
-}
 
-impl Audio for Airap {
-    fn on_update(&mut self, cb: fn(&[i32])) -> Result<(), AirapError> {
-        self.audio.on_update(cb)
+    /// Send data to a callback
+    pub fn on_raw<F>(&mut self, cb: F)
+    where
+        F: Fn(&[f32]) + Send + 'static,
+    {
+        self.audio.on_update(cb);
+    }
+
+    pub fn start() {
+        loop {}
     }
 }

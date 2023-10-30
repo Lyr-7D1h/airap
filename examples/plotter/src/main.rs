@@ -4,6 +4,7 @@ mod plotter;
 mod window;
 
 fn main() {
+    simple_logger::SimpleLogger::new().init().unwrap();
     let application = gtk::Application::new(Some("io.github.airap.plotter"), Default::default());
 
     application.connect_activate(|app| {

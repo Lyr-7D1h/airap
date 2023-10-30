@@ -23,6 +23,7 @@ version = "0.1.0"
 dependencies = [
  "airap",
  "gtk4",
+ "log",
  "plotters",
  "plotters-cairo",
  "simple_logger",
