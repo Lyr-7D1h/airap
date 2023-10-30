@@ -1,29 +1,44 @@
+use airap::Airap;
+use gtk::cairo;
+use gtk::gio;
 use gtk::glib;
+use gtk::glib::idle_add;
+use gtk::glib::idle_add_local;
+use gtk::glib::idle_add_once;
+use gtk::glib::timeout_add;
+use gtk::glib::timeout_add_local;
 use gtk::prelude::*;
 use gtk::subclass::prelude::*;
+use log::info;
+use plotters::coord::types::RangedCoordf32;
+use plotters::coord::Shift;
 
+use std::borrow::BorrowMut;
 use std::cell::Cell;
+use std::cell::RefCell;
 use std::error::Error;
-use std::f64;
+use std::ops::Div;
+use std::rc::Rc;
+use std::sync::mpsc;
+use std::sync::mpsc::channel;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::time::Duration;
 
 use plotters::prelude::*;
 use plotters_cairo::CairoBackend;
 
-#[derive(Debug, Default, glib::Properties)]
+// https://stackoverflow.com/questions/66510406/gtk-rs-how-to-update-view-from-another-thread
+thread_local!(
+    static CONTEXT: RefCell<Option<cairo::Context>> = RefCell::new(None);
+    static AIRAP: RefCell<Option<mpsc::Receiver<Vec<f32>>>> = RefCell::new(None);
+);
+
+#[derive(Debug, glib::Properties)]
 #[properties(wrapper_type = super::Plotter)]
 pub struct Plotter {
-    #[property(get, set, minimum = -f64::consts::PI, maximum = f64::consts::PI)]
-    pitch: Cell<f64>,
-    #[property(get, set, minimum = 0.0, maximum = f64::consts::PI)]
-    yaw: Cell<f64>,
-    #[property(get, set, minimum = -10.0, maximum = 10.0)]
-    mean_x: Cell<f64>,
-    #[property(get, set, minimum = -10.0, maximum = 10.0)]
-    mean_y: Cell<f64>,
-    #[property(get, set, minimum = 0.0, maximum = 10.0)]
-    std_x: Cell<f64>,
-    #[property(get, set, minimum = 0.0, maximum = 10.0)]
-    std_y: Cell<f64>,
+    #[property(get, set, minimum = 20.0, maximum = 5000.0, default = 500.0)]
+    time_interval_ms: Cell<f32>,
 }
 
 #[glib::object_subclass]
@@ -31,6 +46,24 @@ impl ObjectSubclass for Plotter {
     const NAME: &'static str = "Plotter";
     type Type = super::Plotter;
     type ParentType = gtk::Widget;
+
+    fn new() -> Self {
+        info!("Creating plotter");
+
+        let (tx, rx) = channel::<Vec<f32>>();
+        // let mut airap = Airap::new().unwrap();
+        // airap.on_raw(move |data| {
+        //     // tx.send(data.to_vec()).unwrap();
+        //     // println!("{data:?}");
+        //     // plotter_data.lock().unwrap()[plotter_data_len - data.len()..plotter_data_len]
+        //     //     .copy_from_slice(&data);
+        // });
+        AIRAP.with(|r| *r.borrow_mut() = Some(rx));
+
+        Self {
+            time_interval_ms: Cell::new(500.0),
+        }
+    }
 }
 
 impl ObjectImpl for Plotter {
@@ -57,68 +90,78 @@ impl WidgetImpl for Plotter {
         }
 
         let bounds = gtk::graphene::Rect::new(0.0, 0.0, width as f32, height as f32);
-        let cr = snapshot.append_cairo(&bounds);
-        let backend = CairoBackend::new(&cr, (width, height)).unwrap();
-        self.plot_pdf(backend).unwrap();
+        let context = snapshot.append_cairo(&bounds);
+        CONTEXT.with(move |c| *c.borrow_mut() = Some(context));
+        // let backend = CairoBackend::new(&context, (width, height)).unwrap();
+        self.plot_pdf().unwrap();
     }
 }
 
 impl Plotter {
-    fn gaussian_pdf(&self, x: f64, y: f64) -> f64 {
-        let x_diff = (x - self.mean_x.get()) / self.std_x.get();
-        let y_diff = (y - self.mean_y.get()) / self.std_y.get();
-        let exponent = -(x_diff * x_diff + y_diff * y_diff) / 2.0;
-        let denom = (2.0 * std::f64::consts::PI / self.std_x.get() / self.std_y.get()).sqrt();
-        let gaussian_pdf = 1.0 / denom;
-        gaussian_pdf * exponent.exp()
-    }
+    fn plot_pdf<'a>(&self) -> Result<(), Box<dyn Error + 'a>> {
+        println!("A");
+        let width = self.obj().width() as u32;
+        let height = self.obj().height() as u32;
+        let time_interval = self.time_interval_ms.get();
 
-    fn plot_pdf<'a, DB: DrawingBackend + 'a>(
-        &self,
-        backend: DB,
-    ) -> Result<(), Box<dyn Error + 'a>> {
-        let root = backend.into_drawing_area();
+        // CHART.with(move |c| *c.borrow_mut() = Some(chart));
 
-        root.fill(&WHITE)?;
+        // root.present().unwrap();
 
-        let mut chart_builder = ChartBuilder::on(&root);
-        chart_builder
-            .margin(10)
-            .set_left_and_bottom_label_area_size(20);
+        let sample_rate = 480000;
 
-        let mut chart = chart_builder.build_cartesian_2d(-500.0f64..0.0, -1.0f64..1.0)?;
+        let plotter_data_len = sample_rate / 2;
+        let mut plotter_data = vec![0.0 as f32; plotter_data_len];
+        // How does each position in values relate to x-axis
+        let x_rate = time_interval.div(plotter_data_len as f32);
 
-        // chart.with_projection(|mut p| {
-        //     p.pitch = self.pitch.get();
-        //     p.yaw = self.yaw.get();
-        //     p.scale = 0.7;
-        //     p.into_matrix() // build the projection matrix
-        // });
+        timeout_add_local(Duration::from_millis(2000), move || {
+            AIRAP.with(|airap| {
+                if let Some(rx) = &*airap.borrow() {
+                    CONTEXT.with(|context| {
+                        if let Some(context) = &*context.borrow() {
+                            println!("Plotting");
+                            let backend = CairoBackend::new(context, (width, height)).unwrap();
+                            let root = backend.into_drawing_area();
 
-        let x_values = [0.0, 0.5, 1.0, 0.75, 0.0];
+                            let mut chart_builder = ChartBuilder::on(&root);
+                            chart_builder
+                                .margin(10)
+                                .set_left_and_bottom_label_area_size(20);
+                            let mut chart = chart_builder
+                                .build_cartesian_2d(time_interval..0.0, -1.0f32..1.0)
+                                .unwrap();
 
-        chart
-            .configure_mesh()
-            .light_line_style(BLACK.mix(0.15))
-            .max_light_lines(5)
-            .draw()?;
+                            chart
+                                .configure_mesh()
+                                .light_line_style(BLACK.mix(0.15))
+                                .max_light_lines(5)
+                                .draw()
+                                .unwrap();
 
-        chart
-            .draw_series(AreaSeries::new(
-                x_values.map(|x| (x, 0.3 * x)),
-                0.,
-                BLACK.mix(0.2),
-            ))
-            .unwrap();
-        // chart.draw_series(
-        //     AreaSeries::new(
-        //         (-50..=50).map(|x| x as f64 / 5.0),
-        //         (-50..=50).map(|x| x as f64 / 5.0),
-        //         style,
-        //     ), // .style_func(&|&v| (&HSLColor(240.0 / 360.0 - 240.0 / 360.0 * v, 1.0, 0.7)).into()),
-        // )?;
+                            // let data = rx.recv().unwrap();
+                            // plotter_data[plotter_data_len - data.len()..plotter_data_len]
+                            //     .copy_from_slice(&data);
 
-        root.present()?;
+                            // chart
+                            //     .draw_series(AreaSeries::new(
+                            //         plotter_data
+                            //             .iter()
+                            //             .enumerate()
+                            //             .map(|(x, y)| (time_interval - x as f32 * x_rate, *y)),
+                            //         0.0,
+                            //         RED,
+                            //     ))
+                            //     .unwrap();
+
+                            root.present().unwrap();
+                        }
+                    });
+                }
+            });
+            glib::ControlFlow::Continue
+        });
+
         Ok(())
     }
 }

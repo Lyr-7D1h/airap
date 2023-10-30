@@ -4,6 +4,8 @@
 
 The goal of this project is to process audio in as many ways as possible to be used for creative or proffesional? purposes.
 
+## Message passing
+
 ## Usage
 
 Run one of the examples
@@ -24,3 +26,9 @@ Event based. Creat AIAP instance with selected features then have an event loop 
 - Multi channel support
 - Audio metadata
 - Emotion detection
+
+## Resources
+https://www.reddit.com/r/rust/comments/jadbzs/realtime_programming_in_rust/
+https://crates.io/crates/ringbuf
+https://lib.rs/crates/crossbeam-channel (performant channels)
+https://man7.org/linux/man-pages/man2/pipe.2.html (pipes are used in cpal)
