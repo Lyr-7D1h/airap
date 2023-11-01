@@ -13,7 +13,7 @@ use std::time::SystemTime;
 const W: usize = 1000;
 const H: usize = 800;
 
-const TIME_INTERVAL: f32 = 2000.0;
+const TIME_INTERVAL: f32 = 500.0;
 const SAMPLE_RATE: usize = 48_000;
 const FRAME_RATE: f64 = 30.0; // TODO maximize to frame rate
 const DOWN_SAMPLE: usize = 10;
@@ -116,13 +116,12 @@ fn main() -> Result<(), Box<dyn Error>> {
                 chart.plotting_area().fill(&WHITE)?;
 
                 chart
-                    .draw_series(AreaSeries::new(
+                    .draw_series(LineSeries::new(
                         plotter_data
                             .iter()
                             .enumerate()
                             .map(|(x, y)| (TIME_INTERVAL - x as f32 * x_rate, *y)),
-                        0.0,
-                        RED,
+                        &RED,
                     ))
                     .unwrap();
             }
