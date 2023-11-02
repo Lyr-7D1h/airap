@@ -14,10 +14,10 @@ use std::time::{Duration, SystemTime};
 const W: usize = 1000;
 const H: usize = 800;
 
-const TIME_INTERVAL: f32 = 500.0;
+const TIME_INTERVAL: f32 = 200.0;
 const SAMPLE_RATE: usize = 48_000;
 const FRAME_RATE: f64 = 30.0; // TODO maximize to frame rate
-const DOWN_SAMPLE: usize = 10;
+const DOWN_SAMPLE: usize = 5;
 
 struct BufferWrapper(Vec<u32>);
 impl Borrow<[u8]> for BufferWrapper {
@@ -88,7 +88,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     window.update_with_buffer(buf.borrow(), W, H)?;
 
-    let plotter_data_len = SAMPLE_RATE / 2 / DOWN_SAMPLE;
+    let plotter_data_len =
+        (SAMPLE_RATE as f32 / (1000.0 / TIME_INTERVAL) / DOWN_SAMPLE as f32) as usize;
     let mut plotter_data = vec![0.0 as f32; plotter_data_len];
     // How does each position in values relate to x-axis
     let x_rate = TIME_INTERVAL.div(plotter_data_len as f32);
