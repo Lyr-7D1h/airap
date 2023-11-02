@@ -1,6 +1,6 @@
 use log::{debug, warn};
 use pulse::callbacks::ListResult;
-use pulse::context::introspect::SinkInfo;
+use pulse::context::introspect::{self, Introspector, SourceInfo};
 use pulse::context::{Context, FlagSet as ContextFlagSet};
 use pulse::def::{BufferAttr, Retval};
 use pulse::mainloop::standard::IterateResult;
@@ -10,14 +10,88 @@ use pulse::proplist::Proplist;
 use pulse::sample::{Format, Spec};
 use pulse::stream::{self, FlagSet as StreamFlagSet, PeekResult, Stream};
 use std::cell::RefCell;
-use std::error::Error;
 use std::ops::Deref;
 use std::rc::Rc;
-use std::sync::mpsc::Sender;
-use std::sync::Arc;
-use std::thread;
+use std::thread::{self, JoinHandle};
 
 use crate::error::AirapError;
+
+#[derive(Debug)]
+pub struct Source {
+    pub name: String,
+    pub spec: Spec,
+    pub monitor_of_sink: Option<String>,
+}
+
+impl<'a> From<&pulse::context::introspect::SourceInfo<'a>> for Source {
+    fn from(v: &pulse::context::introspect::SourceInfo) -> Self {
+        Self {
+            name: v.name.clone().map(|n| n.to_string()).unwrap_or("".into()),
+            spec: v.sample_spec,
+            monitor_of_sink: v.monitor_of_sink.map(|n| n.to_string()),
+        }
+    }
+}
+
+/// return pulse audio sources
+fn sources<'n>(
+    mainloop: &Rc<RefCell<Mainloop>>,
+    introspector: Introspector,
+) -> Result<Vec<Source>, AirapError> {
+    let mut sources = Rc::new(RefCell::new(vec![]));
+    let sources_clone = sources.clone();
+    let op = introspector.get_source_info_list(move |lr| {
+        if let ListResult::Item(i) = lr {
+            sources_clone.borrow_mut().push(Source::from(i));
+        }
+    });
+    wait_for_operation(&mainloop, op)?;
+    Ok(Rc::try_unwrap(sources).unwrap().into_inner())
+}
+
+impl Source {
+    pub fn default_source() -> Result<Source, AirapError> {
+        let mainloop = Rc::new(RefCell::new(
+            Mainloop::new().expect("Failed to create mainloop"),
+        ));
+        let context = get_context(&mainloop);
+
+        // get default sink name
+        let introspector = context.borrow_mut().introspect();
+        let default_sink_name = Rc::new(RefCell::new(None));
+        let default_sink_name_ref = default_sink_name.clone();
+        let op = introspector.get_server_info(move |info| {
+            let name = info.default_sink_name.as_ref().map(|n| n.to_string());
+            *default_sink_name_ref.borrow_mut() = name;
+        });
+        wait_for_operation(&mainloop, op)?;
+
+        let sources = sources(&mainloop, introspector)?;
+        let default_source = if let Some(default_sink_name) = default_sink_name.borrow().clone() {
+            sources
+                .into_iter()
+                .find(|s| {
+                    if let Some(mos) = &s.monitor_of_sink {
+                        *mos == default_sink_name
+                    } else {
+                        false
+                    }
+                })
+                .ok_or(AirapError::audio("could not find monitor of default sink"))?
+        } else {
+            sources
+                .into_iter()
+                .nth(0)
+                .ok_or(AirapError::audio("no sources found"))?
+        };
+
+        Ok(default_source)
+    }
+}
+
+pub struct Info {
+    latency_μs: u32,
+}
 
 pub struct PulseAudio {}
 
@@ -26,16 +100,20 @@ impl PulseAudio {
         PulseAudio {}
     }
 
-    pub fn on_raw<F>(&mut self, cb: F)
+    pub fn on_raw<F>(&mut self, cb: F) -> JoinHandle<()>
     where
         F: Fn(&[f32]) + Send + 'static,
     {
         thread::Builder::new()
-            .name("airap_pulseaudio_on_update".into())
-            .spawn(|| on_update_worker(cb).unwrap())
-            .unwrap();
+            .name("airap_pulseaudio_on_raw".into())
+            .spawn(|| on_raw_worker(cb).unwrap())
+            .unwrap()
     }
 }
+
+// fn usec_to_bytes() {
+
+// }
 
 fn wait_for_operation<G: ?Sized>(
     mainloop: &Rc<RefCell<Mainloop>>,
@@ -62,24 +140,26 @@ fn iterate_mainloop(mainloop: &Rc<RefCell<Mainloop>>) -> Result<(), AirapError> 
     }
 }
 
-fn on_update_worker<F>(cb: F) -> Result<(), AirapError>
-where
-    F: Fn(&[f32]),
-{
+fn get_context(mainloop: &Rc<RefCell<Mainloop>>) -> Rc<RefCell<Context>> {
     let mut proplist = Proplist::new().unwrap();
     proplist
         .set_str(pulse::proplist::properties::APPLICATION_NAME, "airap")
         .unwrap();
+    Rc::new(RefCell::new(
+        Context::new_with_proplist(mainloop.borrow().deref(), "Airap", &proplist)
+            .expect("Failed to create new context"),
+    ))
+}
 
+fn on_raw_worker<F>(cb: F) -> Result<(), AirapError>
+where
+    F: Fn(&[f32]),
+{
     let mainloop = Rc::new(RefCell::new(
         Mainloop::new().expect("Failed to create mainloop"),
     ));
 
-    let context = Rc::new(RefCell::new(
-        Context::new_with_proplist(mainloop.borrow().deref(), "Airap", &proplist)
-            .expect("Failed to create new context"),
-    ));
-
+    let context = get_context(&mainloop);
     context
         .borrow_mut()
         .connect(None, ContextFlagSet::NOFLAGS, None)
@@ -153,15 +233,23 @@ where
             .expect("Failed to create new stream"),
     ));
 
+    assert!(default_source_spec.borrow().rate_is_valid());
+    assert!(default_source_spec.borrow().format_is_valid());
+
     // let buff_attr = BufferAttr { maxlength: 4194304, tlength: 96000, prebuf: 4294967295, minreq: 4294967295, fragsize: 768000 }
 
     // half the latency
+    println!("{}", (default_source_spec.borrow().rate * 4) / 1000 * 5);
     let buff_attr = BufferAttr {
-        maxlength: u16::MAX as u32 / 10,
-        tlength: 96000,
-        prebuf: u32::MAX,
-        minreq: u32::MAX,
-        fragsize: u32::MAX,
+        maxlength: default_source_spec
+            .borrow()
+            .usec_to_bytes(pulse::time::MicroSeconds(5000)) as u32, // maximum latency
+        tlength: 0,
+        prebuf: 0,
+        minreq: 0,
+        fragsize: default_source_spec
+            .borrow()
+            .usec_to_bytes(pulse::time::MicroSeconds(5000)) as u32, // aiming for this latency
     };
     stream
         .borrow_mut()
@@ -187,28 +275,29 @@ where
 
     let mut stream = stream.borrow_mut();
     debug!(
-        "stream listening to {:?} with spec {:?}",
+        "stream listening to '{:?}' with spec '{:?}'",
         stream.get_device_name().unwrap_or("".into()),
         stream.get_sample_spec()
     );
 
     stream.set_overflow_callback(Some(Box::new(|| warn!("buffer overflow"))));
     stream.set_underflow_callback(Some(Box::new(|| warn!("buffer underflow"))));
-    println!("{:?}", stream.get_buffer_attr());
+    debug!("Buffer size: '{:?}'", stream.get_buffer_attr());
 
     stream.update_timing_info(None);
     loop {
         iterate_mainloop(&mainloop)?;
         if let Some(size) = stream.readable_size() {
             if size > 0 {
-                // println!("{:?}", stream.get_latency());
-                // println!("{:?}", stream.get_timing_info());
-                stream.update_timing_info(None);
-
+                // println!("{size:?}");
                 // TODO parse format
                 while let PeekResult::Data(bytes) = stream.peek()? {
+                    // println!("{:?}", stream.get_latency());
+                    // println!("{:?}", stream.get_timing_info());
+                    stream.update_timing_info(None);
                     // println!("{}", bytes.len());
                     let (prefix, data, suffix) = unsafe { bytes.align_to::<f32>() };
+                    // println!("{:?}", data);
                     assert!(prefix.len() == 0);
                     assert!(suffix.len() == 0);
 
@@ -220,8 +309,8 @@ where
         }
 
         // TODO fix volume and unmute
-        if stream.is_corked().unwrap() {
-            stream.uncork(None);
-        }
+        // if stream.is_corked().unwrap() {
+        //     stream.uncork(None);
+        // }
     }
 }

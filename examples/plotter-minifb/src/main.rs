@@ -8,7 +8,8 @@ use std::collections::VecDeque;
 use std::error::Error;
 use std::ops::Div;
 use std::sync::mpsc;
-use std::time::SystemTime;
+use std::thread::sleep;
+use std::time::{Duration, SystemTime};
 
 const W: usize = 1000;
 const H: usize = 800;
@@ -79,11 +80,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             .build_cartesian_2d(TIME_INTERVAL..0.0, -1.0f32..1.0)
             .unwrap();
 
-        chart
-            .configure_mesh()
-            .light_line_style(BLACK.mix(0.15))
-            .max_light_lines(5)
-            .draw()?;
+        chart.configure_mesh().disable_mesh().draw()?;
 
         let cs = chart.into_chart_state();
         root.present()?;
@@ -98,13 +95,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
         {
-            let data = rx.recv().unwrap();
-            // println!("{data:?}");
-            // println!("{:?}", data.len());
-            plotter_data.drain(0..data.len());
-            plotter_data.extend(data);
-            // println!("{plotter_data_len}");
-            // plotter_data[plotter_data_len - data.len()..plotter_data_len].copy_from_slice(&data);
+            while let Ok(data) = rx.try_recv() {
+                plotter_data.drain(0..data.len());
+                plotter_data.extend(data);
+            }
 
             let root = BitMapBackend::<BGRXPixel>::with_buffer_and_format(
                 buf.borrow_mut(),

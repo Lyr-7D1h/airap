@@ -1,13 +1,6 @@
-use std::{
-    sync::{
-        mpsc::{self, Receiver},
-        Arc,
-    },
-    thread::{self, Builder},
-    time::Duration,
-};
+use std::time::Duration;
 
-use audio::pulseaudio::PulseAudio;
+use audio::pulseaudio::{PulseAudio, Source};
 use error::AirapError;
 
 pub mod audio;
@@ -28,6 +21,8 @@ impl Default for Options {
         }
     }
 }
+
+pub struct Runner {}
 
 pub struct Airap {
     // audio: Box<dyn Audio>,
@@ -50,6 +45,14 @@ impl Airap {
         let audio = PulseAudio::new();
         Ok(Airap { audio })
     }
+
+    pub fn default_device() -> Result<Source, AirapError> {
+        Source::default_source()
+    }
+
+    pub fn on_default_device() {}
+
+    // pub fn on_moving_average(&mut self, options: Options, cb: F) {}
 
     /// Send data to a callback
     pub fn on_raw<F>(&mut self, options: Options, cb: F)
