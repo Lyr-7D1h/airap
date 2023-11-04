@@ -19,6 +19,10 @@ cargo run --package=average_sampling
 Event based. Creat AIAP instance with selected features then have an event loop where you get events from these features.
 
 ## Roadmap
+- Windows support
+- MacOS support
+- Universal data formats
+- Accurate latency detection
 - Moving average sampling
 - Frequency analysis
 - Bpm detection

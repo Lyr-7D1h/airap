@@ -1,4 +1,4 @@
-use airap::{Airap, Options};
+use airap::{Device, Feature, RawEvent, Runner};
 use minifb::{Key, KeyRepeat, Window, WindowOptions};
 use plotters::prelude::*;
 use plotters_bitmap::bitmap_pixel::BGRXPixel;
@@ -7,8 +7,9 @@ use std::borrow::{Borrow, BorrowMut};
 use std::collections::VecDeque;
 use std::error::Error;
 use std::ops::Div;
-use std::sync::mpsc;
-use std::thread::sleep;
+use std::sync::mpsc::{self, Receiver};
+use std::sync::{Arc, Mutex};
+use std::thread::{self, sleep};
 use std::time::{Duration, SystemTime};
 
 const W: usize = 1000;
@@ -50,12 +51,36 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let (tx, rx) = mpsc::channel::<Vec<f32>>();
 
-    let mut airap = Airap::new().unwrap();
-    airap.on_raw(Options::default(), move |data| {
-        let data: Vec<f32> = data.to_owned().into_iter().step_by(DOWN_SAMPLE).collect();
-        tx.send(data).unwrap();
-    });
+    thread::spawn(move || {
+        let mut i = Arc::new(Mutex::new(0));
+        Runner::new()
+            .subscribe(&[
+                Feature::Raw,
+                Feature::DefaultDeviceChange,
+                Feature::MovingAverage,
+            ])
+            .listen(move |runner, e| match e {
+                airap::Event::Raw(RawEvent { data, latency }) => {
+                    // print event every 100 seconds
+                    let mut mi = i.lock().unwrap();
+                    *mi = (*mi + 1) % 100;
+                    if *mi == 0 {
+                        println!("{:?}", latency.internal)
+                    }
 
+                    let data: Vec<f32> = data.to_owned().into_iter().step_by(DOWN_SAMPLE).collect();
+                    tx.send(data).unwrap();
+                }
+                _ => {}
+            })
+            .unwrap();
+    });
+    show_window(rx)?;
+    // loop {}
+    Ok(())
+}
+
+pub fn show_window(rx: Receiver<Vec<f32>>) -> Result<(), Box<dyn Error>> {
     let mut buf = BufferWrapper(vec![0u32; W * H]);
 
     let mut window = Window::new(
