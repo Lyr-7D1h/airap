@@ -144,18 +144,25 @@ impl Runner {
         };
 
         for feature in self.features.iter() {
-            let device = device.clone();
-            let sender = sender.clone();
             match feature {
-                Feature::Raw => self.pool.add(feature.to_string(), move || {
-                    raw(device, |e| {
-                        // mlc(Event::Raw(RawEvent { data: e }))
-                        sender.send(Event::Raw(e)).unwrap();
-                    })
-                    .unwrap();
-                })?,
+                Feature::Raw => {
+                    let device = device.clone();
+                    let sender = sender.clone();
+                    self.pool.add(feature.to_string(), move || {
+                        raw(device, |e| {
+                            // mlc(Event::Raw(RawEvent { data: e }))
+                            sender.send(Event::Raw(e)).unwrap();
+                        })
+                        .unwrap();
+                    })?;
+                }
                 Feature::DefaultDeviceChange => {}
-                Feature::MovingAverage => {}
+                Feature::MovingAverage => {
+                    let receiver = receiver.clone();
+                    self.pool.add(feature.to_string(), move || {
+                        receiver.recv().unwrap();
+                    });
+                }
             }
         }
 
