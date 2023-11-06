@@ -9,6 +9,7 @@ edition = "2021"
 pulse = {version = "2.0", package="libpulse-binding"}
 psimple = {version="2.28.1",package="libpulse-simple-binding"}
 log = "0.4.20"
+crossbeam = "0.8.2"
 
 [dev-dependencies]
 
