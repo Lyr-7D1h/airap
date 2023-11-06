@@ -29,13 +29,13 @@ impl Default for Options {
     }
 }
 
-pub struct ThreadPool {
+pub struct FeatureThreadPool {
     threads: HashMap<String, JoinHandle<()>>,
 }
 
-impl ThreadPool {
+impl FeatureThreadPool {
     pub fn new() -> Self {
-        ThreadPool {
+        FeatureThreadPool {
             threads: HashMap::new(),
         }
     }
@@ -51,9 +51,9 @@ impl ThreadPool {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MicroSeconds(pub u64);
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Instant {
     /// No latency.
     None,
@@ -71,13 +71,14 @@ impl From<pulse::stream::Latency> for Instant {
         }
     }
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Latency {
     /// Latency from recording to airap
     pub internal: Instant,
     pub airap: Instant,
 }
 
+#[derive(Debug, Clone)]
 pub struct RawEvent<'a> {
     pub data: &'a [f32],
     pub latency: Latency,
@@ -108,7 +109,7 @@ impl ToString for Feature {
 }
 
 pub struct Runner {
-    pool: ThreadPool,
+    pool: FeatureThreadPool,
     device: Option<Device>,
     features: HashSet<Feature>,
 }
@@ -116,7 +117,7 @@ pub struct Runner {
 impl Runner {
     pub fn new() -> Self {
         Self {
-            pool: ThreadPool::new(),
+            pool: FeatureThreadPool::new(),
             device: None,
             features: HashSet::new(),
         }
@@ -135,7 +136,8 @@ impl Runner {
     where
         F: Fn(&mut Self, Event) + Send + 'static,
     {
-        let (sender, receiver) = channel();
+        let (raw_tx, raw_rx) = channel();
+        let (moving_average_tx, moving_average_rx) = channel();
 
         let device = if let Some(d) = &self.device {
             d.clone()
@@ -143,24 +145,31 @@ impl Runner {
             Device::default()?
         };
 
-        for feature in self.features.iter() {
+        if let Some(feature) = self.features.get(&Feature::Raw) {
             let device = device.clone();
-            let sender = sender.clone();
-            match feature {
-                Feature::Raw => self.pool.add(feature.to_string(), move || {
-                    raw(device, |e| {
-                        // mlc(Event::Raw(RawEvent { data: e }))
-                        sender.send(Event::Raw(e)).unwrap();
-                    })
-                    .unwrap();
-                })?,
-                Feature::DefaultDeviceChange => {}
-                Feature::MovingAverage => {}
-            }
+            self.pool.add(feature.to_string(), move || {
+                raw(device, |e| {
+                    raw_tx.send(Event::Raw(e)).unwrap();
+                })
+                .unwrap();
+            })?;
+        }
+        if let Some(feature) = self.features.get(&Feature::MovingAverage) {
+            // let device = device.clone();
+            self.pool.add(feature.to_string(), move || {
+                moving_average_rx.recv().unwrap();
+            })?;
         }
 
         loop {
-            let data = receiver.recv().unwrap();
+            let data = raw_rx.recv().unwrap();
+
+            match data {
+                Event::Raw(e) => moving_average_tx.send(e.clone()).unwrap(),
+                Event::DefaultDeviceChange => todo!(),
+                Event::MovingAverage => todo!(),
+            }
+
             cb(self, data)
         }
     }
