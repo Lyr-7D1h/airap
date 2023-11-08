@@ -11,7 +11,16 @@ The goal of this project is to process audio in as many ways as possible to be u
 Run one of the examples
 
 ```bash
-cargo run --package=average_sampling
+cargo run --package=plotter-minifb
+```
+
+## Development
+
+Run thread sanitizer (https://doc.rust-lang.org/beta/unstable-book/compiler-flags/sanitizer.html#threadsanitizer)
+
+```bash
+export RUSTFLAGS=-Zsanitizer=thread RUSTDOCFLAGS=-Zsanitizer=thread
+cargo run -Zbuild-std --target x86_64-unknown-linux-gnu --package=plotter-minifb
 ```
 
 ## Architecture
@@ -19,6 +28,7 @@ cargo run --package=average_sampling
 Event based. Creat AIAP instance with selected features then have an event loop where you get events from these features.
 
 ## Roadmap
+- Add slowmotion to plotter to look for discrepencies
 - Windows support
 - MacOS support
 - Universal data formats

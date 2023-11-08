@@ -5,6 +5,7 @@ use std::{error, io};
 pub enum AirapErrorKind {
     Io,
     Audio,
+    Feature,
     Unsupported,
 }
 
@@ -24,6 +25,10 @@ impl AirapError {
 
     pub fn audio<S: Into<String>>(message: S) -> AirapError {
         Self::new(message, AirapErrorKind::Audio)
+    }
+
+    pub fn feature<S: Into<String>>(message: S) -> AirapError {
+        Self::new(message, AirapErrorKind::Feature)
     }
 
     pub fn unsupported<S: Into<String>>(message: S) -> AirapError {

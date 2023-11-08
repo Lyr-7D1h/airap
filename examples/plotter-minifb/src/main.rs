@@ -1,4 +1,5 @@
-use airap::{Device, Feature, RawEvent, Runner};
+use airap::feature::{feature_flags, Feature, RawFeature};
+use airap::{Device, MovingAverageEvent, RawEvent, Runner};
 use minifb::{Key, KeyRepeat, Window, WindowOptions};
 use plotters::prelude::*;
 use plotters_bitmap::bitmap_pixel::BGRXPixel;
@@ -46,41 +47,69 @@ impl BorrowMut<[u32]> for BufferWrapper {
     }
 }
 
+pub struct Audio<const CHANNELS: usize> {
+    channels: [Receiver<Vec<f32>>; CHANNELS],
+}
+
+impl<const CHANNELS: usize> Audio<CHANNELS> {
+    fn load(features: &[Feature; 2]) -> Audio<2> {
+        let (raw_tx, raw_rx) = mpsc::channel::<Vec<f32>>();
+        let (average_tx, average_rx) = mpsc::channel::<Vec<f32>>();
+
+        thread::spawn(move || {
+            let i = Arc::new(Mutex::new(0));
+            Runner::new()
+                .subscribe(&[Feature::default(feature_flags::MOVING_AVERAGE)])
+                .unwrap()
+                .listen(move |e| match e {
+                    airap::Event::Raw(RawEvent { data, latency }) => {
+                        // print latency every 100 events
+                        let mut mi = i.lock().unwrap();
+                        *mi = (*mi + 1) % 100;
+                        if *mi == 0 {
+                            println!("{:?}", latency.internal)
+                        }
+
+                        let data: Vec<f32> = data.iter().step_by(DOWN_SAMPLE).cloned().collect();
+                        raw_tx.send(data).unwrap();
+                    }
+                    airap::Event::MovingAverage(MovingAverageEvent { average, .. }) => {
+                        average_tx.send(average).unwrap();
+                    }
+                    _ => {}
+                })
+                .unwrap();
+        });
+
+        Audio {
+            channels: [raw_rx, average_rx],
+        }
+    }
+
+    fn try_recv(&self) -> [Vec<f32>; CHANNELS] {
+        let mut data: [Vec<f32>; CHANNELS] = vec![Vec::new(); CHANNELS].try_into().expect("static");
+
+        for (i, c) in self.channels.iter().enumerate() {
+            while let Ok(rd) = c.try_recv() {
+                data[i].extend(rd);
+            }
+        }
+
+        data
+    }
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     simple_logger::SimpleLogger::new().init().unwrap();
 
-    let (tx, rx) = mpsc::channel::<Vec<f32>>();
+    let audio = Audio::<2>::load(&[Feature::default(feature_flags::RAW), Feature::MovingAverage]);
 
-    thread::spawn(move || {
-        let mut i = Arc::new(Mutex::new(0));
-        Runner::new()
-            .subscribe(&[
-                Feature::Raw,
-                Feature::DefaultDeviceChange,
-                Feature::MovingAverage,
-            ])
-            .listen(move |runner, e| match e {
-                airap::Event::Raw(RawEvent { data, latency }) => {
-                    // print event every 100 seconds
-                    let mut mi = i.lock().unwrap();
-                    *mi = (*mi + 1) % 100;
-                    if *mi == 0 {
-                        println!("{:?}", latency.internal)
-                    }
-
-                    let data: Vec<f32> = data.to_owned().into_iter().step_by(DOWN_SAMPLE).collect();
-                    tx.send(data).unwrap();
-                }
-                _ => {}
-            })
-            .unwrap();
-    });
-    show_window(rx)?;
+    show_window(audio)?;
     // loop {}
     Ok(())
 }
 
-pub fn show_window(rx: Receiver<Vec<f32>>) -> Result<(), Box<dyn Error>> {
+pub fn show_window(audio: Audio<2>) -> Result<(), Box<dyn Error>> {
     let mut buf = BufferWrapper(vec![0u32; W * H]);
 
     let mut window = Window::new(
@@ -107,24 +136,34 @@ pub fn show_window(rx: Receiver<Vec<f32>>) -> Result<(), Box<dyn Error>> {
 
         chart.configure_mesh().disable_mesh().draw()?;
 
+        chart
+            .configure_series_labels()
+            .position(SeriesLabelPosition::UpperLeft);
         let cs = chart.into_chart_state();
         root.present()?;
         cs
     };
     window.update_with_buffer(buf.borrow(), W, H)?;
 
-    let plotter_data_len =
-        (SAMPLE_RATE as f32 / (1000.0 / TIME_INTERVAL) / DOWN_SAMPLE as f32) as usize;
-    let mut plotter_data = vec![0.0 as f32; plotter_data_len];
+    let plotter_raw_data_len = SAMPLE_RATE as f32 / (1000.0 / TIME_INTERVAL) / DOWN_SAMPLE as f32;
+    // Adding an extra data point because we also want 0 to contain data
+    let mut plotter_raw_data = vec![0.0 as f32; plotter_raw_data_len as usize + 1];
     // How does each position in values relate to x-axis
-    let x_rate = TIME_INTERVAL.div(plotter_data_len as f32);
+    let plotter_raw_data_x_rate = TIME_INTERVAL.div(plotter_raw_data_len);
+
+    // fragrate / 4 = 240
+    let plotter_average_data_len = SAMPLE_RATE as f32 / (1000.0 / TIME_INTERVAL) / 240 as f32;
+    // Adding an extra data point because we also want 0 to contain data
+    let mut plotter_average_data = vec![0.0 as f32; plotter_average_data_len as usize + 1];
+    let plotter_average_data_x_rate = TIME_INTERVAL.div(plotter_average_data_len as f32);
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
         {
-            while let Ok(data) = rx.try_recv() {
-                plotter_data.drain(0..data.len());
-                plotter_data.extend(data);
-            }
+            let [raw_data, average_data] = audio.try_recv();
+            plotter_raw_data.drain(0..raw_data.len());
+            plotter_raw_data.extend(raw_data);
+            plotter_average_data.drain(0..average_data.len());
+            plotter_average_data.extend(average_data);
 
             let root = BitMapBackend::<BGRXPixel>::with_buffer_and_format(
                 buf.borrow_mut(),
@@ -137,13 +176,25 @@ pub fn show_window(rx: Receiver<Vec<f32>>) -> Result<(), Box<dyn Error>> {
 
                 chart
                     .draw_series(LineSeries::new(
-                        plotter_data
+                        plotter_raw_data
                             .iter()
                             .enumerate()
-                            .map(|(x, y)| (TIME_INTERVAL - x as f32 * x_rate, *y)),
+                            .map(|(x, y)| (TIME_INTERVAL - x as f32 * plotter_raw_data_x_rate, *y)),
                         &RED,
                     ))
-                    .unwrap();
+                    .unwrap()
+                    .label("raw");
+
+                chart
+                    .draw_series(LineSeries::new(
+                        plotter_average_data.iter().enumerate().map(|(x, y)| {
+                            (TIME_INTERVAL - x as f32 * plotter_average_data_x_rate, *y)
+                        }),
+                        BLUE.stroke_width(2),
+                    ))
+                    .unwrap()
+                    .label("average")
+                    .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &BLUE));
             }
             root.present()?;
         }

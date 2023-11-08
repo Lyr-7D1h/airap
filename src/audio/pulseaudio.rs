@@ -152,7 +152,7 @@ fn get_context(mainloop: &Rc<RefCell<Mainloop>>) -> Result<Rc<RefCell<Context>>,
     return Ok(context);
 }
 
-pub fn raw<'a, F>(device: Device, cb: F) -> Result<(), AirapError>
+pub fn raw<'a, F>(device: &Device, cb: F) -> Result<(), AirapError>
 where
     F: Fn(RawEvent<'a>),
 {
