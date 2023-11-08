@@ -7,30 +7,11 @@
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Debug executable 'omnis_audio'",
+      "name": "Debug executable 'plotter-minifb'",
       "cargo": {
-        "args": ["build", "--bin=omnis_audio", "--package=omnis_audio"],
+        "args": ["build", "--bin=plotter-minifb", "--package=plotter-minifb"],
         "filter": {
-          "name": "omnis_audio",
-          "kind": "bin"
-        }
-      },
-      "args": [],
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "type": "lldb",
-      "request": "launch",
-      "name": "Debug unit tests in executable 'omnis_audio'",
-      "cargo": {
-        "args": [
-          "test",
-          "--no-run",
-          "--bin=omnis_audio",
-          "--package=omnis_audio"
-        ],
-        "filter": {
-          "name": "omnis_audio",
+          "name": "plotter-minifb",
           "kind": "bin"
         }
       },
