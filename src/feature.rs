@@ -1,14 +1,10 @@
 use std::{
     collections::{HashMap, HashSet},
-    hash::Hash,
-    iter::FilterMap,
     slice::{Iter, IterMut},
     sync::mpsc::{Receiver, Sender},
 };
 
 use log::info;
-
-use crate::{audio::pulseaudio::raw, error::AirapError, Event, ThreadContext};
 
 #[derive(Debug, Clone)]
 pub struct RawFeature {
@@ -25,7 +21,10 @@ impl Default for RawFeature {
 
 #[derive(Debug, Clone)]
 pub enum Feature {
-    Raw { buffer_latency: u32 },
+    Raw {
+        buffer_latency: u32,
+        down_sampling_rate: u32,
+    },
     DefaultDeviceChange,
     MovingAverage,
 }
@@ -34,6 +33,7 @@ impl Feature {
         match flag {
             feature_flags::RAW => Feature::Raw {
                 buffer_latency: 5000,
+                down_sampling_rate: 0,
             },
             feature_flags::DEFAULT_DEVICE_CHANGE => Feature::DefaultDeviceChange,
             feature_flags::MOVING_AVERAGE => Feature::MovingAverage,
@@ -115,78 +115,3 @@ impl FeatureStore {
         self.enabled_features & flag > 0
     }
 }
-
-// pub struct FeatureStore {
-//     state: HashMap<u8, Box<dyn FeatureImpl>>,
-//     pub enabled_features: u32,
-// }
-
-// impl<'a> FeatureStore {
-//     pub fn new() -> Self {
-//         let mut features = vec![];
-//         for _ in 0..32 {
-//             features.push(None);
-//         }
-//         FeatureStore {
-//             state: features,
-//             enabled_features: 0,
-//         }
-//     }
-
-//     fn insert(&mut self, flag: u32, value: Box<dyn FeatureImpl>) {
-//         self.state.insert(flag.ilog2() as usize, Some(value));
-//     }
-
-//     pub fn set_features(
-//         &mut self,
-//         features: &[impl FeatureImpl + Default + Clone + 'static],
-//     ) -> Result<(), AirapError> {
-//         // reset if features set
-//         if self.enabled_features != 0 {
-//             self.state.clear();
-//             self.enabled_features = 0;
-//         }
-
-//         for f in features.into_iter().cloned() {
-//             let id = f.id();
-//             self.enabled_features |= id | f.dependencies();
-//             self.insert(id, Box::new(f));
-//         }
-
-//         for i in 0..self.enabled_features.ilog2() {
-//             let flag = (i + 1).pow(2);
-//             if flag & self.enabled_features > 0 && self.state[i as usize].is_none() {
-//                 info!("Adding dependency ({flag}) with default options");
-//                 let feature = match flag {
-//                     feature_flags::RAW => RawFeature::default(),
-//                     _ => {
-//                         return Err(AirapError::feature(format!(
-//                             "no default implementation found for {flag}"
-//                         )))
-//                     }
-//                 };
-//                 self.insert(flag, Box::new(feature));
-//             }
-//         }
-
-//         Ok(())
-//     }
-
-//     pub fn features(self) -> Vec<Box<dyn FeatureImpl>> {
-//         self.state.into_iter().filter_map(|f| f).collect()
-//     }
-
-//     #[inline]
-//     pub fn contains(&self, feature: u32) -> bool {
-//         self.enabled_features & feature > 0
-//     }
-
-//     pub fn get(&self, flag: u32) -> Option<&Box<dyn FeatureImpl>> {
-//         if flag & self.enabled_features > 0 {
-//             let index = flag.ilog2() as usize;
-//             Some(self.state[index].as_ref().unwrap())
-//         } else {
-//             None
-//         }
-//     }
-// }

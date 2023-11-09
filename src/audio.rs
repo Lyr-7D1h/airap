@@ -1,7 +1,9 @@
-use std::sync::mpsc::Sender;
-
-use crate::error::AirapError;
-
+#[cfg(any(
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd"
+))]
 pub mod pulseaudio;
 
 // pub trait Audio {
